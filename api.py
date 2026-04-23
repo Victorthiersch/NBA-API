@@ -6,7 +6,6 @@ from nba_ev import fetch_player_gamelog, analyze
 
 app = FastAPI()
 
-
 # 📦 estrutura do que você vai receber do Lovable
 class Bet(BaseModel):
     player: str
@@ -39,7 +38,3 @@ def analyze_bet(bet: Bet):
     )
 
     return result
-    
-    if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
