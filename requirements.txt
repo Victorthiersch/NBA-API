@@ -1,4 +1,6 @@
-numpy
+fastapi
+uvicorn
 pandas
+numpy
 requests
 nba_api
