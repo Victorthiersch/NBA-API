@@ -1,12 +1,22 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 # importa seu script
 from nba_ev import fetch_player_gamelog, analyze
 
 app = FastAPI()
 
-# 📦 estrutura do que você vai receber do Lovable
+# 🚨 LIBERA CORS (ESSENCIAL PARA O LOVABLE)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # pode restringir depois
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 📦 estrutura do request
 class Bet(BaseModel):
     player: str
     market: str   # PTS, REB, AST, PRA
@@ -18,7 +28,13 @@ class Bet(BaseModel):
     home: bool = True
 
 
-# 🌐 endpoint (API)
+# 🔍 rota de teste (IMPORTANTE)
+@app.get("/")
+def root():
+    return {"status": "API ONLINE"}
+
+
+# 🌐 endpoint principal
 @app.post("/analyze")
 def analyze_bet(bet: Bet):
     df = fetch_player_gamelog(bet.player)
