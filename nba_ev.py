@@ -2,132 +2,162 @@ import pandas as pd
 import numpy as np
 
 
-# 🔎 mock de dados (substituível por nba_api depois)
+# =========================
+# 📦 MOCK (substituir depois por nba_api)
+# =========================
 def fetch_player_gamelog(player: str):
+    np.random.seed(hash(player) % 10000)
+
     data = {
-        "PTS": [25, 30, 22, 28, 35, 18, 40, 27, 29, 31],
-        "REB": [8, 10, 7, 9, 11, 6, 12, 8, 9, 10],
-        "AST": [6, 5, 7, 8, 6, 4, 9, 7, 6, 8],
+        "PTS": np.random.normal(25, 6, 30),
+        "REB": np.random.normal(6, 2, 30),
+        "AST": np.random.normal(5, 2, 30),
     }
 
     return pd.DataFrame(data)
 
 
-# 🎯 peso maior para jogos recentes (form)
+# =========================
+# 🧠 PESO EXPONENCIAL (FORMA RECENTE)
+# =========================
+def exponential_weights(n, decay=0.85):
+    return np.array([decay ** (n - i) for i in range(n)])
+
+
 def weighted_mean(values):
-    weights = np.arange(1, len(values) + 1)
-    return np.average(values, weights=weights)
+    w = exponential_weights(len(values))
+    return np.average(values, weights=w)
 
 
-# 🛡️ desvio padrão robusto
-def safe_std(values):
-    std = np.std(values)
-
-    # evita modelo quebrar
-    if std == 0 or np.isnan(std):
-        return max(np.mean(values) * 0.1, 1)  # fallback inteligente
-
-    return std
+def weighted_std(values):
+    w = exponential_weights(len(values))
+    mean = np.average(values, weights=w)
+    variance = np.average((values - mean) ** 2, weights=w)
+    return np.sqrt(variance)
 
 
-# ⚔️ ajuste simples por adversário
-def opponent_adjustment(opp: str):
-    weak_defense = ["CHA", "WAS", "DET"]
-    strong_defense = ["BOS", "MIN", "NYK"]
+# =========================
+# 🏀 AJUSTE POR CONTEXTO
+# =========================
+def adjust_for_context(mean, home, opp_strength=1.0):
+    """
+    opp_strength:
+        <1 = defesa fraca (melhora stats)
+        >1 = defesa forte (piora stats)
+    """
 
-    if opp in weak_defense:
-        return 1.05
-    elif opp in strong_defense:
-        return 0.95
-    return 1.0
+    home_boost = 1.03 if home else 0.97
+
+    return mean * home_boost * opp_strength
 
 
-# 🎲 simulação Monte Carlo robusta
-def monte_carlo_prob(mean, std, line, side, simulations=10000):
+# =========================
+# 🎲 MONTE CARLO PROFISSIONAL
+# =========================
+def monte_carlo(mean, std, line, side, simulations=20000):
     sims = np.random.normal(mean, std, simulations)
 
     if side == "over":
-        prob = np.mean(sims > line)
+        return np.mean(sims > line)
     else:
-        prob = np.mean(sims < line)
-
-    # proteção total
-    if np.isnan(prob):
-        return 0.5
-
-    return float(prob)
+        return np.mean(sims < line)
 
 
-# 📊 função principal
+# =========================
+# 📊 MAIN MODEL
+# =========================
 def analyze(bet: dict, df: pd.DataFrame):
     try:
-        market = bet.get("market")
-        line = float(bet.get("line", 0))
-        odd = float(bet.get("odd", 0))
-        side = bet.get("side", "over").lower()
-        opp = bet.get("opp", "")
+        market = bet["market"]
+        line = float(bet["line"])
+        odd = float(bet["odd"])
+        side = bet.get("side", "over")
+        home = bet.get("home", True)
+        opp = bet.get("opp", "AVG")
 
         if df is None or df.empty:
             return {"error": "Sem dados"}
 
-        # 📦 cria PRA se necessário
+        # PRA
         if market == "PRA":
-            if all(col in df.columns for col in ["PTS", "REB", "AST"]):
-                df["PRA"] = df["PTS"] + df["REB"] + df["AST"]
-            else:
-                return {"error": "Dados insuficientes para PRA"}
+            df["PRA"] = df["PTS"] + df["REB"] + df["AST"]
 
         if market not in df.columns:
             return {"error": f"Market inválido: {market}"}
 
         values = df[market].dropna().values
 
-        if len(values) < 3:
-            return {"error": "Amostra pequena demais"}
+        if len(values) < 5:
+            return {"error": "Amostra insuficiente"}
 
-        # 📈 média ponderada (form recente)
+        # =========================
+        # 📈 ESTATÍSTICAS BASE
+        # =========================
         mean = weighted_mean(values)
+        std = weighted_std(values)
 
-        # ⚔️ ajuste por adversário
-        adj_factor = opponent_adjustment(opp)
-        adjusted_mean = mean * adj_factor
+        std = max(std, 1.0)  # proteção
 
-        # 📉 desvio padrão robusto
-        std = safe_std(values)
+        # =========================
+        # 🧠 AJUSTE POR ADVERSÁRIO (SIMPLIFICADO)
+        # =========================
+        opp_map = {
+            "PHI": 1.02,
+            "BOS": 0.98,
+            "LAL": 1.00,
+            "DEF_STRONG": 1.05,
+            "DEF_WEAK": 0.95
+        }
 
-        # 🎲 Monte Carlo
-        prob = monte_carlo_prob(adjusted_mean, std, line, side)
+        opp_strength = opp_map.get(opp, 1.0)
 
-        # 🎯 prob implícita
-        implied_prob = 1 / odd if odd > 0 else 0
+        adjusted_mean = adjust_for_context(mean, home, opp_strength)
 
-        # 💰 EV correto
+        # =========================
+        # 🎲 PROBABILIDADE (MONTE CARLO)
+        # =========================
+        prob = monte_carlo(adjusted_mean, std, line, side)
+
+        # =========================
+        # 💰 MÉTRICAS FINANCEIRAS
+        # =========================
+        implied = 1 / odd if odd > 0 else 0
         ev = (prob * odd) - 1
+        edge = prob - implied
 
-        # 🧠 edge
-        edge = prob - implied_prob
+        # proteção numérica
+        prob = float(np.clip(prob, 0, 1))
+        ev = float(np.nan_to_num(ev))
+        edge = float(np.nan_to_num(edge))
 
-        # 🧾 decisão
         decision = "VALUE BET" if ev > 0 else "NO BET"
 
         return {
-            "player": bet.get("player"),
+            "player": bet["player"],
             "market": market,
             "line": line,
             "odd": odd,
             "side": side,
 
+            # 📊 CORE
             "adjusted_mean": round(float(adjusted_mean), 2),
             "std_dev": round(float(std), 2),
 
+            # 🎯 PROBABILIDADES
             "model_probability": round(prob * 100, 2),
-            "implied_probability": round(implied_prob * 100, 2),
+            "implied_probability": round(implied * 100, 2),
             "edge": round(edge * 100, 2),
+
+            # 💰 EV
             "ev": round(ev * 100, 2),
 
+            # ⚙️ META
             "sample_size": len(values),
-            "simulations": 10000,
+            "simulations": 20000,
+            "home": home,
+            "opp": opp,
 
+            # 🧠 RESULTADO
             "decision": decision
         }
 
